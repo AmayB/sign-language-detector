@@ -35,9 +35,7 @@ ALLOWED_IMAGE_TYPES = {
 }
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
-DEVICE = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
+DEVICE = torch.device("cpu")
 
 
 # --------------------------------------------------

@@ -4,6 +4,4 @@ python-multipart
 numpy
 opencv-python-headless
 mediapipe
-scikit-learn
-joblib
 torch
