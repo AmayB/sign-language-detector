@@ -40,7 +40,6 @@ DEVICE = torch.device("cpu")
 
 # --------------------------------------------------
 # PyTorch model architecture
-# Must match the training script exactly.
 # --------------------------------------------------
 
 class ASLClassifier(nn.Module):
@@ -65,34 +64,19 @@ class ASLClassifier(nn.Module):
 # Load model and normalization values
 # --------------------------------------------------
 
-for path in (
-    CHECKPOINT_PATH,
-    LABELS_PATH,
-    LANDMARKER_PATH,
-):
+for path in (CHECKPOINT_PATH, LABELS_PATH, LANDMARKER_PATH):
     if not path.is_file():
-        raise FileNotFoundError(
-            f"Required file not found: {path}"
-        )
+        raise FileNotFoundError(f"Required file not found: {path}")
 
 with open(LABELS_PATH, "r", encoding="utf-8") as file:
     labels = json.load(file)
 
-if not isinstance(labels, list) or not labels:
-    raise ValueError("The model labels file is invalid.")
+if not isinstance(labels, list) or len(labels) != 26:
+    raise ValueError("The labels file must contain 26 letter classes.")
 
 if not set(labels).issubset(ALLOWED_LETTERS):
-    raise ValueError(
-        "The labels file contains unsupported classes."
-    )
+    raise ValueError("The labels file contains unsupported classes.")
 
-if len(labels) != 26:
-    raise ValueError(
-        f"Expected 26 letter classes, found {len(labels)}."
-    )
-
-# This checkpoint should contain tensors and basic data only,
-# as saved by your training script.
 checkpoint = torch.load(
     CHECKPOINT_PATH,
     map_location=DEVICE,
@@ -105,12 +89,9 @@ if checkpoint["input_size"] != 63:
 if checkpoint["num_classes"] != len(labels):
     raise ValueError("Checkpoint and label counts do not match.")
 
-# Prefer labels saved with the checkpoint when available.
 checkpoint_labels = checkpoint.get("labels")
 if checkpoint_labels is not None and checkpoint_labels != labels:
-    raise ValueError(
-        "Checkpoint labels do not match the labels JSON file."
-    )
+    raise ValueError("Checkpoint labels do not match the labels JSON file.")
 
 classifier = ASLClassifier(
     input_size=checkpoint["input_size"],
@@ -135,7 +116,6 @@ feature_std = torch.as_tensor(
 if feature_mean.shape[1] != 63 or feature_std.shape[1] != 63:
     raise ValueError("Invalid feature normalization dimensions.")
 
-# Avoid division by zero if any feature had zero variance.
 feature_std = torch.where(
     feature_std < 1e-8,
     torch.ones_like(feature_std),
@@ -158,18 +138,15 @@ landmarker_options = mp.tasks.vision.HandLandmarkerOptions(
     num_hands=1,
 )
 
-hand_detector = (
-    mp.tasks.vision.HandLandmarker.create_from_options(
-        landmarker_options
-    )
+hand_detector = mp.tasks.vision.HandLandmarker.create_from_options(
+    landmarker_options
 )
 
-# Protect the shared MediaPipe detector from simultaneous access.
 detector_lock = threading.Lock()
 
 
 # --------------------------------------------------
-# FastAPI application
+# FastAPI application and CORS
 # --------------------------------------------------
 
 app = FastAPI(
@@ -180,10 +157,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://sign-language-detector-4y1j.onrender.com",
+        "https://asl.amaybhardwaj.com",
         "http://localhost:5173",
-        "http://127.0.0.1:5173",
     ],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -194,10 +172,7 @@ app.add_middleware(
 # --------------------------------------------------
 
 def extract_landmarks(image_bgr):
-    image_rgb = cv2.cvtColor(
-        image_bgr,
-        cv2.COLOR_BGR2RGB,
-    )
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
     mp_image = mp.Image(
         image_format=mp.ImageFormat.SRGB,
@@ -212,7 +187,6 @@ def extract_landmarks(image_bgr):
 
     hand = result.hand_landmarks[0]
     wrist = hand[0]
-
     features = []
 
     for landmark in hand:
@@ -222,10 +196,7 @@ def extract_landmarks(image_bgr):
             landmark.z - wrist.z,
         ])
 
-    return np.asarray(
-        features,
-        dtype=np.float32,
-    ).reshape(1, 63)
+    return np.asarray(features, dtype=np.float32).reshape(1, 63)
 
 
 # --------------------------------------------------
@@ -253,15 +224,8 @@ async def read_uploaded_image(file: UploadFile):
             detail="Image exceeds the 10 MB upload limit.",
         )
 
-    image_array = np.frombuffer(
-        contents,
-        dtype=np.uint8,
-    )
-
-    image = cv2.imdecode(
-        image_array,
-        cv2.IMREAD_COLOR,
-    )
+    image_array = np.frombuffer(contents, dtype=np.uint8)
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
     if image is None:
         raise HTTPException(
@@ -273,7 +237,7 @@ async def read_uploaded_image(file: UploadFile):
 
 
 # --------------------------------------------------
-# Routes
+# API routes
 # --------------------------------------------------
 
 @app.get("/")
@@ -304,35 +268,23 @@ async def predict(file: UploadFile = File(...)):
     if features is None:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "No hand detected. Show one clearly visible "
-                "hand in the image."
-            ),
+            detail="No hand detected. Show one clearly visible hand in the image.",
         )
 
     try:
-        # Apply the same standardization used during training.
         feature_tensor = torch.as_tensor(
             features,
             dtype=torch.float32,
             device=DEVICE,
         )
 
-        feature_tensor = (
-            feature_tensor - feature_mean
-        ) / feature_std
+        feature_tensor = (feature_tensor - feature_mean) / feature_std
 
         with torch.inference_mode():
             logits = classifier(feature_tensor)
             probabilities = torch.softmax(logits, dim=1)[0]
-
-            best_index = int(
-                torch.argmax(probabilities).item()
-            )
-
-            confidence = float(
-                probabilities[best_index].item()
-            )
+            best_index = int(torch.argmax(probabilities).item())
+            confidence = float(probabilities[best_index].item())
 
         predicted_letter = labels[best_index]
 
@@ -355,10 +307,7 @@ async def predict(file: UploadFile = File(...)):
 
 
 @app.post("/collect")
-async def collect(
-    letter: str,
-    file: UploadFile = File(...),
-):
+async def collect(letter: str, file: UploadFile = File(...)):
     letter = letter.strip().upper()
 
     if letter not in ALLOWED_LETTERS:
@@ -375,9 +324,7 @@ async def collect(
     filename = f"{uuid.uuid4().hex}.jpg"
     save_path = letter_dir / filename
 
-    success = cv2.imwrite(str(save_path), image)
-
-    if not success:
+    if not cv2.imwrite(str(save_path), image):
         raise HTTPException(
             status_code=500,
             detail="Could not save the collected image.",
@@ -397,12 +344,10 @@ def collection_counts():
 
     for letter in sorted(ALLOWED_LETTERS):
         letter_dir = COLLECTION_DIR / letter
-
-        if letter_dir.exists():
-            counts[letter] = len(
-                list(letter_dir.glob("*.jpg"))
-            )
-        else:
-            counts[letter] = 0
+        counts[letter] = (
+            len(list(letter_dir.glob("*.jpg")))
+            if letter_dir.exists()
+            else 0
+        )
 
     return {"counts": counts}
