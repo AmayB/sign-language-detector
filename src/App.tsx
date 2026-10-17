@@ -8,7 +8,10 @@ import {
 } from "./handTracker";
 import "./App.css";
 
-const API_URL = "http://127.0.0.1:8000";
+// Uses Render's production API URL when deployed.
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
 const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 type Prediction = {
@@ -38,9 +41,11 @@ export default function App() {
       }
 
       streamRef.current?.getTracks().forEach((track) => track.stop());
+
       if (landmarkFrameRef.current !== null) {
         window.cancelAnimationFrame(landmarkFrameRef.current);
       }
+
       closeHandTracker();
     };
   }, []);
@@ -63,7 +68,10 @@ export default function App() {
       return;
     }
 
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    if (
+      canvas.width !== video.videoWidth ||
+      canvas.height !== video.videoHeight
+    ) {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
     }
@@ -75,6 +83,7 @@ export default function App() {
     }
 
     context.clearRect(0, 0, canvas.width, canvas.height);
+
     const result = tracker.detectForVideo(video, timestamp);
 
     for (const landmarks of result.landmarks) {
@@ -94,6 +103,7 @@ export default function App() {
       }
 
       context.fillStyle = "#f8fafc";
+
       for (const landmark of landmarks) {
         context.beginPath();
         context.arc(
@@ -107,7 +117,8 @@ export default function App() {
       }
     }
 
-    landmarkFrameRef.current = window.requestAnimationFrame(drawLandmarks);
+    landmarkFrameRef.current =
+      window.requestAnimationFrame(drawLandmarks);
   }
 
   async function startLandmarkOverlay(video: HTMLVideoElement) {
@@ -115,7 +126,8 @@ export default function App() {
       await initializeHandTracker();
 
       if (streamRef.current && videoRef.current === video) {
-        landmarkFrameRef.current = window.requestAnimationFrame(drawLandmarks);
+        landmarkFrameRef.current =
+          window.requestAnimationFrame(drawLandmarks);
       }
     } catch {
       clearLandmarkOverlay();
@@ -180,6 +192,7 @@ export default function App() {
       window.cancelAnimationFrame(landmarkFrameRef.current);
       landmarkFrameRef.current = null;
     }
+
     clearLandmarkOverlay();
     closeHandTracker();
 
@@ -220,8 +233,11 @@ export default function App() {
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob(
           (result) => {
-            if (result) resolve(result);
-            else reject(new Error("Could not create an image."));
+            if (result) {
+              resolve(result);
+            } else {
+              reject(new Error("Could not create an image."));
+            }
           },
           "image/jpeg",
           0.85,
@@ -239,7 +255,9 @@ export default function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || "Prediction failed.");
+        throw new Error(
+          data.detail || `Prediction failed (${response.status}).`,
+        );
       }
 
       setPrediction({
@@ -292,9 +310,7 @@ export default function App() {
       <section className="main-content">
         <div className="intro">
           <h2>Sign Language Detector</h2>
-          <p>
-            
-          </p>
+          <p></p>
         </div>
 
         <div className="action-row">
@@ -334,9 +350,12 @@ export default function App() {
                 muted
                 className={cameraReady ? "video visible" : "video"}
               />
+
               <canvas
                 ref={overlayCanvasRef}
-                className={cameraReady ? "video-overlay visible" : "video-overlay"}
+                className={
+                  cameraReady ? "video-overlay visible" : "video-overlay"
+                }
                 aria-hidden="true"
               />
 
@@ -360,8 +379,7 @@ export default function App() {
                 <div className="predicted-letter">{prediction.letter}</div>
 
                 <p className="confidence">
-                  Confidence:{" "}
-                  {(prediction.confidence * 100).toFixed(1)}%
+                  Confidence: {(prediction.confidence * 100).toFixed(1)}%
                 </p>
 
                 <div className="confidence-track">
@@ -409,7 +427,7 @@ export default function App() {
           >
             <header className="modal-header">
               <div>
-                <h2 id="reference-title"></h2>
+                <h2 id="reference-title">ASL Alphabet</h2>
                 <p>Reference images for ASL alphabet</p>
               </div>
 
