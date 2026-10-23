@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.gitignore
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.vscode/

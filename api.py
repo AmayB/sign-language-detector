@@ -260,6 +260,23 @@ def health():
     }
 
 
+@app.post("/debug-detect")
+async def debug_detect(file: UploadFile = File(...)):
+    image = await read_uploaded_image(file)
+
+    height, width = image.shape[:2]
+    features = extract_landmarks(image)
+
+    return {
+        "image_width": width,
+        "image_height": height,
+        "image_channels": image.shape[2] if len(image.shape) == 3 else 1,
+        "landmarker_file_exists": LANDMARKER_PATH.is_file(),
+        "landmarker_file_size": LANDMARKER_PATH.stat().st_size,
+        "hand_detected": features is not None,
+    }
+
+
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     image = await read_uploaded_image(file)
